@@ -1,0 +1,179 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "cloudServiceName": {
+            "type": "String",
+            "metadata": {
+                "description": "Name of the cloud service"
+            }
+        },
+        "location": {
+            "type": "String",
+            "metadata": {
+                "description": "Location of the cloud service"
+            }
+        },
+        "deploymentLabel": {
+            "type": "String",
+            "metadata": {
+                "description": "Label of the deployment"
+            }
+        },
+        "packageSasUri": {
+            "type": "SecureString",
+            "metadata": {
+                "description": "SAS Uri of the CSPKG file to deploy"
+            }
+        },
+        "configurationSasUri": {
+            "type": "SecureString",
+            "metadata": {
+                "description": "SAS Uri of the service configuration (.cscfg)"
+            }
+        },
+        "vnetName": {
+            "type": "String",
+            "metadata": {
+                "description": "Name of vitual network"
+            }
+        },
+        "publicIPName": {
+            "defaultValue": "Name of public IP",
+            "type": "String",
+            "metadata": {
+                "description": "Name of public IP address"
+            }
+        },
+        "upgradeMode": {
+            "defaultValue": "Auto",
+            "type": "String",
+            "metadata": {
+                "UpgradeMode": "UpgradeMode of the CloudService"
+            }
+        }
+    },
+    "variables": {
+        "cloudServiceName": "[parameters('cloudServiceName')]",
+        "subscriptionID": "[subscription().subscriptionId]",
+        "dnsName": "[variables('cloudServiceName')]",
+        "lbName": "[concat(variables('cloudServiceName'), 'LB')]",
+        "lbFEName": "[concat(variables('cloudServiceName'), 'LBFE')]",
+        "resourcePrefix": "[concat('/subscriptions/', variables('subscriptionID'), '/resourceGroups/', 
+    resourceGroup().name, '/providers/')]" 
+    },"resources": [
+        {
+            "type": "Microsoft.Network/virtualNetworks",
+            "apiVersion": "2019-08-01",
+            "name": "[parameters('vnetName')]",
+            "location": "[parameters('location')]",
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": [
+                        "10.0.0.0/16"
+                    ]
+                },
+                "subnets": [
+                    {
+                        "name": "default",
+                        "properties": {
+                            "addressPrefix": "10.0.0.0/24"
+                        }
+                    },
+                    {
+                        "name": "loadbalancer",
+                        "properties": {
+                            "addressPrefix": "10.0.1.0/24"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Network/publicIPAddresses",
+            "apiVersion": "2019-08-01",
+            "name": "[parameters('publicIPName')]",
+            "location": "[parameters('location')]",
+            "sku": {
+                "name": "Basic"
+            },
+            "properties": {
+                "publicIPAllocationMethod": "Dynamic",
+                "idleTimeoutInMinutes": 10,
+                "publicIPAddressVersion": "IPv4",
+                "dnsSettings": {
+                    "domainNameLabel": "[variables('dnsName')]"
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Compute/cloudServices",
+            "apiVersion": "2021-03-01",
+            "name": "[variables('cloudServiceName')]",
+            "location": "[parameters('location')]",
+            "dependsOn": [
+                "[concat('Microsoft.Network/virtualNetworks/', parameters('vnetName'))]",
+                "[concat('Microsoft.Network/publicIPAddresses/', parameters('publicIPName'))]"
+            ],
+            "tags": {
+                "DeploymentLabel": "[parameters('deploymentLabel')]",
+                "DeployFromVisualStudio": "true"
+            },
+            "properties": {
+                "packageUrl": "[parameters('packageSasUri')]",
+                "configurationUrl": "[parameters('configurationSasUri')]",
+                "upgradeMode": "[parameters('upgradeMode')]",
+                "roleProfile": {
+                    "roles": [
+                        {
+                            "name": "WebRole1",
+                            "sku": {
+                                "name": "Standard_D1_v2",
+                                "capacity": "1"
+                            }
+                        }
+                    ]
+                },
+                "networkProfile": {
+                    "loadBalancerConfigurations": [
+                        {
+                            "id": "[concat(variables('resourcePrefix'), 'Microsoft.Network/loadBalancers/', 
+    variables('lbName'))
+                        ]","name": "[variables('lbName')]",
+                        "properties": {
+                            "frontendIPConfigurations": [
+                                {
+                                    "name": "[variables('lbFEName')]",
+                                    "properties": {
+                                        "publicIPAddress": {
+                                            "id": "[concat(variables('resourcePrefix'), 'Microsoft.Network/publicIPAddresses/', 
+    parameters('publicIPName'))
+                                        ]" }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "id": "[concat(variables('resourcePrefix'), 'Microsoft.Network/loadBalancers/', 'internalip')]",
+                        "name": "internalip",
+                        "properties": {
+                            "frontendIPConfigurations": [
+                                {
+                                    "name": "internalipFE",
+                                    "properties": {
+                                        "privateIPAddress": "10.0.1.5",
+                                        "subnet": {
+                                            "id": "[concat(variables('resourcePrefix'), 'Microsoft.Network/virtualNetworks/', 
+    parameters('vnetName'), '/subnets/loadbalancer')
+                                        ]" }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+            }
+        }
+    }
